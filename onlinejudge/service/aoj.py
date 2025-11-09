@@ -19,7 +19,7 @@ import requests
 import onlinejudge._implementation.testcase_zipper
 import onlinejudge._implementation.utils as utils
 import onlinejudge.type
-from onlinejudge.type import TestCase
+from onlinejudge.type import LanguageId, LoginError, NotLoggedInError, SubmissionError, TestCase
 
 logger = getLogger(__name__)
 
@@ -179,6 +179,51 @@ class AOJProblem(onlinejudge.type.Problem):
     def get_url(self) -> str:
         return 'http://judge.u-aizu.ac.jp/onlinejudge/description.jsp?id={}'.format(self.problem_id)
 
+    def submit_code(self, code: bytes, language_id: LanguageId, *, filename: Optional[str] = None, session: Optional[requests.Session] = None) -> 'AOJSubmission':
+        """
+        :raises NotLoggedInError:
+        :raises SubmissionError:
+        """
+        session = session or utils.get_default_session()
+
+        # check if logged in
+        if not self.get_service().is_logged_in(session=session):
+            raise NotLoggedInError
+
+        # prepare submission data
+        url = 'https://judgeapi.u-aizu.ac.jp/submissions'
+        data = {
+            'problemId': self.problem_id,
+            'language': str(language_id),
+            'sourceCode': code.decode('utf-8'),
+        }
+        headers = {
+            'Content-Type': 'application/json;charset=UTF-8',
+        }
+
+        # submit
+        resp = utils.request('POST', url, json=data,
+                             session=session, headers=headers)
+
+        # check response
+        if resp.status_code != 200:
+            logger.error('submission failed with status code: %d',
+                         resp.status_code)
+            raise SubmissionError('submission failed')
+
+        # parse response to get submission token
+        try:
+            result = json.loads(resp.text)
+            submission_token = result.get('token')
+            if submission_token is None:
+                raise SubmissionError(
+                    'failed to get submission token from response')
+            logger.info('success: submission token: %s', submission_token)
+            return AOJSubmission(submission_token=submission_token, problem_id=self.problem_id)
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            logger.error('failed to parse response: %s', e)
+            raise SubmissionError('failed to parse submission response')
+
     @classmethod
     def from_url(cls, url: str) -> Optional['AOJProblem']:
         result = urllib.parse.urlparse(url)
@@ -283,5 +328,59 @@ class AOJArenaProblem(onlinejudge.type.Problem):
         return AOJService()
 
 
+class AOJSubmission(onlinejudge.type.Submission):
+    """
+    :ivar submission_token: :py:class:`str` - UUID format token (e.g., 'afabd5d0-e47c-471f-b988-fde2f62fe6cd')
+    :ivar problem_id: :py:class:`Optional[str]` - cached problem_id
+    """
+
+    def __init__(self, *, submission_token: str, problem_id: Optional[str] = None):
+        self.submission_token = submission_token
+        self._problem_id = problem_id
+
+    def get_url(self) -> str:
+        return 'https://judgeapi.u-aizu.ac.jp/submissions/{}'.format(self.submission_token)
+
+    def download_problem(self, *, session: Optional[requests.Session] = None) -> AOJProblem:
+        """
+        :raises SubmissionError: if failed to get problem_id from submission data
+        """
+        if self._problem_id is None:
+            session = session or utils.get_default_session()
+            # Get submission data from API
+            url = self.get_url()
+            resp = utils.request('GET', url, session=session)
+            if resp.status_code != 200:
+                raise SubmissionError('failed to get submission data')
+
+            try:
+                data = json.loads(resp.text)
+                self._problem_id = data.get('problemId')
+                if self._problem_id is None:
+                    raise SubmissionError('problemId not found in submission data')
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.error('failed to parse submission data: %s', e)
+                raise SubmissionError('failed to parse submission data')
+
+        return AOJProblem(problem_id=self._problem_id)
+
+    @classmethod
+    def from_url(cls, url: str) -> Optional['AOJSubmission']:
+        # example: https://judgeapi.u-aizu.ac.jp/submissions/afabd5d0-e47c-471f-b988-fde2f62fe6cd
+        result = urllib.parse.urlparse(url)
+        if result.scheme in ('', 'http', 'https') \
+                and result.netloc == 'judgeapi.u-aizu.ac.jp':
+            m = re.match(
+                r'^/submissions/([0-9a-f\-]+)$', utils.normpath(result.path))
+            if m:
+                submission_token = m.group(1)
+                return cls(submission_token=submission_token)
+        return None
+
+    def get_service(self) -> AOJService:
+        return AOJService()
+
+
 onlinejudge.dispatch.services += [AOJService]
 onlinejudge.dispatch.problems += [AOJProblem, AOJArenaProblem]
+onlinejudge.dispatch.submissions += [AOJSubmission]
