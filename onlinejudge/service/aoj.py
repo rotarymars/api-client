@@ -28,8 +28,47 @@ class AOJService(onlinejudge.type.Service):
     def get_url(self) -> str:
         return 'http://judge.u-aizu.ac.jp/onlinejudge/'
 
+    def get_api_base_url(self) -> str:
+        return 'https://judgeapi.u-aizu.ac.jp'
+
     def get_name(self) -> str:
         return 'Aizu Online Judge'
+
+    def is_logged_in(self, *, session: Optional[requests.Session] = None) -> bool:
+        session = session or utils.get_default_session()
+        url = f'{self.get_api_base_url()}/self'
+        resp = utils.request('GET', url, session=session,
+                             allow_redirects=False)
+        return resp.status_code == 200
+
+    def login(self, *, get_credentials: onlinejudge.type.CredentialsProvider, session: Optional[requests.Session] = None) -> None:
+        """
+        :raises LoginError:
+        """
+
+        session = session or utils.get_default_session()
+        if self.is_logged_in(session=session):
+            return
+
+        # get
+        url = f'{self.get_api_base_url()}/session'
+        username, password = get_credentials()
+        data = {
+            'id': username,
+            'password': password,
+        }
+        headers = {
+            'Content-Type': 'application/json;charset=UTF-8',
+        }
+        resp = utils.request('POST', url, json=data, session=session,
+                             headers=headers, allow_redirects=False)
+
+        # result
+        if resp.status_code == 200:
+            logger.info('Welcome,')
+        else:
+            logger.error('Username or Password is incorrect.')
+            raise LoginError
 
     @classmethod
     def from_url(cls, url: str) -> Optional['AOJService']:
@@ -37,7 +76,7 @@ class AOJService(onlinejudge.type.Service):
         # example: https://onlinejudge.u-aizu.ac.jp/home
         result = urllib.parse.urlparse(url)
         if result.scheme in ('', 'http', 'https') \
-                and result.netloc in ('judge.u-aizu.ac.jp', 'onlinejudge.u-aizu.ac.jp'):
+                and result.netloc in ('judge.u-aizu.ac.jp', 'judgeapi.u-aizu.ac.jp', 'onlinejudge.u-aizu.ac.jp'):
             return cls()
         return None
 
@@ -48,7 +87,8 @@ class AOJService(onlinejudge.type.Service):
     def is_logged_in(self, *, session: Optional[requests.Session] = None) -> bool:
         session = session or utils.get_default_session()
         url = 'https://judgeapi.u-aizu.ac.jp/self'
-        resp = utils.request('GET', url, session=session, raise_for_status=False)
+        resp = utils.request('GET', url, session=session,
+                             raise_for_status=False)
         if resp.status_code != 200:
             return False
         data = json.loads(resp.content)
@@ -60,6 +100,7 @@ class AOJProblem(onlinejudge.type.Problem):
     """
     :ivar problem_id: :py:class:`str` like `DSL_1_A` or `2256`
     """
+
     def __init__(self, *, problem_id):
         self.problem_id = problem_id
 
@@ -68,7 +109,8 @@ class AOJProblem(onlinejudge.type.Problem):
 
         # get samples via the official API
         # reference: http://developers.u-aizu.ac.jp/api?key=judgedat%2Ftestcases%2Fsamples%2F%7BproblemId%7D_GET
-        url = 'https://judgedat.u-aizu.ac.jp/testcases/samples/{}'.format(self.problem_id)
+        url = 'https://judgedat.u-aizu.ac.jp/testcases/samples/{}'.format(
+            self.problem_id)
         resp = utils.request('GET', url, session=session)
         samples = []  # type: List[TestCase]
         for i, sample in enumerate(json.loads(resp.text)):
@@ -83,11 +125,13 @@ class AOJProblem(onlinejudge.type.Problem):
         # parse HTML if no samples are registered
         # see: https://github.com/kmyk/online-judge-tools/issues/207
         if not samples:
-            logger.warning("sample cases are not registered in the official API")
+            logger.warning(
+                "sample cases are not registered in the official API")
             logger.info("fallback: parsing HTML")
 
             # reference: http://developers.u-aizu.ac.jp/api?key=judgeapi%2Fresources%2Fdescriptions%2F%7Blang%7D%2F%7Bproblem_id%7D_GET
-            url = 'https://judgeapi.u-aizu.ac.jp/resources/descriptions/ja/{}'.format(self.problem_id)
+            url = 'https://judgeapi.u-aizu.ac.jp/resources/descriptions/ja/{}'.format(
+                self.problem_id)
             resp = utils.request('GET', url, session=session)
             html = json.loads(resp.text)['html']
 
@@ -109,7 +153,8 @@ class AOJProblem(onlinejudge.type.Problem):
 
         # get header
         # reference: http://developers.u-aizu.ac.jp/api?key=judgedat%2Ftestcases%2F%7BproblemId%7D%2Fheader_GET
-        url = 'https://judgedat.u-aizu.ac.jp/testcases/{}/header'.format(self.problem_id)
+        url = 'https://judgedat.u-aizu.ac.jp/testcases/{}/header'.format(
+            self.problem_id)
         resp = utils.request('GET', url, session=session)
         header = json.loads(resp.text)
 
@@ -118,7 +163,8 @@ class AOJProblem(onlinejudge.type.Problem):
         for header in header['headers']:
             # NOTE: the endpoints are not same to http://developers.u-aizu.ac.jp/api?key=judgedat%2Ftestcases%2F%7BproblemId%7D%2F%7Bserial%7D_GET since the json API often says "..... (terminated because of the limitation)"
             # NOTE: even when using https://judgedat.u-aizu.ac.jp/testcases/PROBLEM_ID/SERIAL, there is the 1G limit (see https://twitter.com/beet_aizu/status/1194947611100188672)
-            url = 'https://judgedat.u-aizu.ac.jp/testcases/{}/{}'.format(self.problem_id, header['serial'])
+            url = 'https://judgedat.u-aizu.ac.jp/testcases/{}/{}'.format(
+                self.problem_id, header['serial'])
             resp_in = utils.request('GET', url + '/in', session=session)
             resp_out = utils.request('GET', url + '/out', session=session)
             testcases += [TestCase(
@@ -150,7 +196,8 @@ class AOJProblem(onlinejudge.type.Problem):
 
         # example: https://onlinejudge.u-aizu.ac.jp/challenges/sources/JAG/Prelim/2881
         # example: https://onlinejudge.u-aizu.ac.jp/courses/library/4/CGL/3/CGL_3_B
-        m = re.match(r'^/(challenges|courses)/(sources|library/\d+|lesson/\d+)/(\w+)/(\w+)/(\w+)$', utils.normpath(result.path))
+        m = re.match(r'^/(challenges|courses)/(sources|library/\d+|lesson/\d+)/(\w+)/(\w+)/(\w+)$',
+                     utils.normpath(result.path))
         if result.scheme in ('', 'http', 'https') \
                 and result.netloc == 'onlinejudge.u-aizu.ac.jp' \
                 and m:
@@ -179,6 +226,7 @@ class AOJArenaProblem(onlinejudge.type.Problem):
 
     .. versionadded:: 6.1.0
     """
+
     def __init__(self, *, arena_id, alphabet):
         assert alphabet in string.ascii_uppercase
         self.arena_id = arena_id
@@ -193,7 +241,8 @@ class AOJArenaProblem(onlinejudge.type.Problem):
 
         if self._problem_id is None:
             session = session or utils.get_default_session()
-            url = 'https://judgeapi.u-aizu.ac.jp/arenas/{}/problems'.format(self.arena_id)
+            url = 'https://judgeapi.u-aizu.ac.jp/arenas/{}/problems'.format(
+                self.arena_id)
             resp = utils.request('GET', url, session=session)
             problems = json.loads(resp.text)
             for problem in problems:
