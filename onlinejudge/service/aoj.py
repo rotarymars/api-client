@@ -19,7 +19,7 @@ import requests
 import onlinejudge._implementation.testcase_zipper
 import onlinejudge._implementation.utils as utils
 import onlinejudge.type
-from onlinejudge.type import LanguageId, LoginError, NotLoggedInError, SubmissionError, TestCase
+from onlinejudge.type import Language, LanguageId, LoginError, NotLoggedInError, SubmissionError, TestCase
 
 logger = getLogger(__name__)
 
@@ -178,6 +178,34 @@ class AOJProblem(onlinejudge.type.Problem):
 
     def get_url(self) -> str:
         return 'http://judge.u-aizu.ac.jp/onlinejudge/description.jsp?id={}'.format(self.problem_id)
+
+    def get_available_languages(self, *, session: Optional[requests.Session] = None) -> List[Language]:
+        session = session or utils.get_default_session()
+
+        languages = [
+            Language(id=LanguageId('C'), name='C'),
+            Language(id=LanguageId('C++'), name='C++'),
+            Language(id=LanguageId('JAVA'), name='JAVA'),
+            Language(id=LanguageId('C++11'), name='C++11'),
+            Language(id=LanguageId('C++14'), name='C++14'),
+            Language(id=LanguageId('C++17'), name='C++17'),
+            Language(id=LanguageId('C#'), name='C#'),
+            Language(id=LanguageId('D'), name='D'),
+            Language(id=LanguageId('Ruby'), name='Ruby'),
+            Language(id=LanguageId('Python'), name='Python'),
+            Language(id=LanguageId('Python3'), name='Python3'),
+            Language(id=LanguageId('PHP'), name='PHP'),
+            Language(id=LanguageId('JavaScript'), name='JavaScript'),
+            Language(id=LanguageId('Scala'), name='Scala'),
+            Language(id=LanguageId('Haskell'), name='Haskell'),
+            Language(id=LanguageId('OCaml'), name='OCaml'),
+            Language(id=LanguageId('Rust'), name='Rust'),
+            Language(id=LanguageId('Go'), name='Go'),
+            Language(id=LanguageId('Kotlin'), name='Kotlin'),
+        ]
+
+        return languages
+
 
     def submit_code(self, code: bytes, language_id: LanguageId, *, filename: Optional[str] = None, session: Optional[requests.Session] = None) -> 'AOJSubmission':
         """
