@@ -189,11 +189,14 @@ class AOJProblem(onlinejudge.type.Problem):
             Language(id=LanguageId('C++11'), name='C++11'),
             Language(id=LanguageId('C++14'), name='C++14'),
             Language(id=LanguageId('C++17'), name='C++17'),
+            Language(id=LanguageId('C++20'), name='C++20'),
+            Language(id=LanguageId('C++23'), name='C++23'),
             Language(id=LanguageId('C#'), name='C#'),
             Language(id=LanguageId('D'), name='D'),
             Language(id=LanguageId('Ruby'), name='Ruby'),
             Language(id=LanguageId('Python'), name='Python'),
             Language(id=LanguageId('Python3'), name='Python3'),
+            Language(id=LanguageId('PyPy3'), name='PyPy3'),
             Language(id=LanguageId('PHP'), name='PHP'),
             Language(id=LanguageId('JavaScript'), name='JavaScript'),
             Language(id=LanguageId('Scala'), name='Scala'),
@@ -205,7 +208,6 @@ class AOJProblem(onlinejudge.type.Problem):
         ]
 
         return languages
-
 
     def submit_code(self, code: bytes, language_id: LanguageId, *, filename: Optional[str] = None, session: Optional[requests.Session] = None) -> 'AOJSubmission':
         """
@@ -385,7 +387,8 @@ class AOJSubmission(onlinejudge.type.Submission):
                 data = json.loads(resp.text)
                 self._problem_id = data.get('problemId')
                 if self._problem_id is None:
-                    raise SubmissionError('problemId not found in submission data')
+                    raise SubmissionError(
+                        'problemId not found in submission data')
             except (json.JSONDecodeError, KeyError) as e:
                 logger.error('failed to parse submission data: %s', e)
                 raise SubmissionError('failed to parse submission data')
