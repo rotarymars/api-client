@@ -220,6 +220,18 @@ class AOJProblem(onlinejudge.type.Problem):
         if not self.get_service().is_logged_in(session=session):
             raise NotLoggedInError
 
+        # get current user ID
+        user_id = None
+        try:
+            self_api_url = 'https://judgeapi.u-aizu.ac.jp/self'
+            self_resp = utils.request('GET', self_api_url, session=session)
+            if self_resp.status_code == 200:
+                user_info = json.loads(self_resp.text)
+                user_id = user_info.get('id')
+        except Exception as e:
+            logger.warning('failed to get user ID: %s', e)
+            # Continue without user_id - it's optional
+
         # prepare submission data
         url = 'https://judgeapi.u-aizu.ac.jp/submissions'
         data = {
@@ -249,7 +261,7 @@ class AOJProblem(onlinejudge.type.Problem):
                 raise SubmissionError(
                     'failed to get submission token from response')
             logger.info('success: submission token: %s', submission_token)
-            return AOJSubmission(submission_token=submission_token, problem_id=self.problem_id)
+            return AOJSubmission(submission_token=submission_token, problem_id=self.problem_id, user_id=user_id)
         except (json.JSONDecodeError, KeyError, ValueError) as e:
             logger.error('failed to parse response: %s', e)
             raise SubmissionError('failed to parse submission response')
@@ -362,14 +374,72 @@ class AOJSubmission(onlinejudge.type.Submission):
     """
     :ivar submission_token: :py:class:`str` - UUID format token (e.g., 'afabd5d0-e47c-471f-b988-fde2f62fe6cd')
     :ivar problem_id: :py:class:`Optional[str]` - cached problem_id
+    :ivar user_id: :py:class:`Optional[str]` - cached user_id
     """
 
-    def __init__(self, *, submission_token: str, problem_id: Optional[str] = None):
+    def __init__(self, *, submission_token: str, problem_id: Optional[str] = None, user_id: Optional[str] = None):
         self.submission_token = submission_token
         self._problem_id = problem_id
+        self._user_id = user_id
 
     def get_url(self) -> str:
-        return 'https://judgeapi.u-aizu.ac.jp/submissions/{}'.format(self.submission_token)
+        """
+        Returns the human-readable submission status page URL.
+        Fetches the current user's last submission from the recent submissions API to construct the URL.
+
+        :raises SubmissionError: if failed to get submission data from API or no submissions available
+        """
+        session = utils.get_default_session()
+
+        try:
+            # Get current user ID - use cached value if available
+            current_user_id = self._user_id
+            if current_user_id is None:
+                # Fetch from API if not cached
+                self_api_url = 'https://judgeapi.u-aizu.ac.jp/self'
+                self_resp = utils.request('GET', self_api_url, session=session)
+                if self_resp.status_code != 200:
+                    raise SubmissionError('failed to get current user information from API')
+
+                user_info = json.loads(self_resp.text)
+                current_user_id = user_info.get('id')
+                if not current_user_id:
+                    raise SubmissionError('user ID not found in user information')
+
+            # Get recent submissions
+            submissions_api_url = 'https://judgeapi.u-aizu.ac.jp/submission_records/recent'
+            submissions_resp = utils.request('GET', submissions_api_url, session=session)
+            if submissions_resp.status_code != 200:
+                raise SubmissionError('failed to get submission data from API')
+
+            submissions = json.loads(submissions_resp.text)
+
+            # Filter submissions by current user ID
+            user_submissions = [s for s in submissions if s.get('userId') == current_user_id]
+
+            if not user_submissions:
+                raise SubmissionError('no recent submissions available for current user')
+
+            # Pick the last submission from the filtered array
+            submission_data = user_submissions[-1]
+
+            # Extract required fields from API response
+            user_id = submission_data.get('userId')
+            problem_id = submission_data.get('problemId')
+            judge_id = submission_data.get('judgeId')
+            language = submission_data.get('language')
+
+            if not all([user_id, problem_id, judge_id, language]):
+                raise SubmissionError('missing required fields in submission data')
+
+            # Construct the submission status URL
+            return 'https://onlinejudge.u-aizu.ac.jp/status/users/{}/submissions/1/{}/judge/{}/{}'.format(
+                user_id, problem_id, judge_id, language
+            )
+
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.error('failed to parse submission data: %s', e)
+            raise SubmissionError('failed to parse submission data')
 
     def download_problem(self, *, session: Optional[requests.Session] = None) -> AOJProblem:
         """
