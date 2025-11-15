@@ -421,7 +421,7 @@ class AOJSubmission(onlinejudge.type.Submission):
                 raise SubmissionError('no recent submissions available for current user')
 
             # Pick the last submission from the filtered array
-            submission_data = user_submissions[-1]
+            submission_data = user_submissions[0]
 
             # Extract required fields from API response
             user_id = submission_data.get('userId')
@@ -436,6 +436,7 @@ class AOJSubmission(onlinejudge.type.Submission):
             return 'https://onlinejudge.u-aizu.ac.jp/status/users/{}/submissions/1/{}/judge/{}/{}'.format(
                 user_id, problem_id, judge_id, language
             )
+
 
         except (json.JSONDecodeError, KeyError) as e:
             logger.error('failed to parse submission data: %s', e)
